@@ -1,0 +1,66 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.wallisoft.tinysms'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.wallisoft.tinysms"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildFeatures {
+        viewBinding true
+    }
+
+    packaging {
+        resources {
+            excludes += [
+                'META-INF/DEPENDENCIES',
+                'META-INF/LICENSE',
+                'META-INF/LICENSE.txt',
+                'META-INF/LICENSE.md',
+                'META-INF/NOTICE',
+                'META-INF/NOTICE.txt',
+                'META-INF/NOTICE.md',
+                'META-INF/*.kotlin_module',
+                'META-INF/INDEX.LIST'
+            ]
+        }
+    }
+}
+
+dependencies {
+    // Google Sign-In + Gmail API
+    implementation 'com.google.android.gms:play-services-auth:21.0.0'
+    implementation 'com.google.api-client:google-api-client-android:2.2.0'
+    implementation 'com.google.apis:google-api-services-gmail:v1-rev20220404-2.0.0'
+    // Jetty omitted - not needed on Android, causes META-INF/DEPENDENCIES conflict
+    implementation 'com.google.http-client:google-http-client-gson:1.43.3'
+
+    // JavaMail for Android (MimeMessage support)
+    implementation 'com.sun.mail:android-mail:1.6.7'
+    implementation 'com.sun.mail:android-activation:1.6.7'
+
+    // WorkManager for background polling
+    implementation 'androidx.work:work-runtime:2.9.0'
+
+    // AndroidX
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+}

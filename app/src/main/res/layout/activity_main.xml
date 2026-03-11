@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="#1a1a2e">
+
+    <!-- Title row with icon -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingBottom="4dp">
+
+        <ImageView
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@mipmap/ic_launcher"
+            android:layout_marginEnd="10dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Tiny-SMS"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:textColor="#e94560"/>
+    </LinearLayout>
+
+    <!-- Attribution label - NOT a link -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Written and maintained by tiny-web.uk"
+        android:textSize="11sp"
+        android:textColor="#556688"
+        android:gravity="center"
+        android:paddingBottom="4dp"/>
+
+    <TextView
+        android:id="@+id/tvAccountStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Not signed in"
+        android:textSize="13sp"
+        android:textColor="#aaaaaa"
+        android:gravity="center"
+        android:paddingBottom="12dp"/>
+
+    <!-- Gmail link button -->
+    <Button
+        android:id="@+id/btnLinkGmail"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="🔗  Link Gmail Account"
+        android:textColor="#ffffff"
+        android:backgroundTint="#0f3460"
+        android:layout_marginBottom="8dp"/>
+
+    <!-- Check mail button -->
+    <Button
+        android:id="@+id/btnCheckMail"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="📬  Check Mail Now"
+        android:textColor="#ffffff"
+        android:backgroundTint="#16213e"
+        android:enabled="false"
+        android:layout_marginBottom="8dp"/>
+
+    <!-- Worker status row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="12dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Auto-check (5 min)"
+            android:textColor="#cccccc"
+            android:textSize="14sp"/>
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switchWorker"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="false"/>
+    </LinearLayout>
+
+    <!-- Log label row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="4dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Activity Log"
+            android:textColor="#e94560"
+            android:textSize="14sp"
+            android:textStyle="bold"/>
+
+        <!-- Export log button -->
+        <Button
+            android:id="@+id/btnExportLog"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:text="📤 Export"
+            android:textSize="11sp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:backgroundTint="#0f3460"
+            android:textColor="#ffffff"
+            android:layout_marginEnd="6dp"/>
+
+        <!-- Clear log -->
+        <Button
+            android:id="@+id/btnClearLog"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:text="🗑 Clear"
+            android:textSize="11sp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:backgroundTint="#2a2a3e"
+            android:textColor="#888888"/>
+    </LinearLayout>
+
+    <!-- Log scrollview -->
+    <ScrollView
+        android:id="@+id/scrollLog"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#0d0d1a"
+        android:padding="8dp">
+
+        <TextView
+            android:id="@+id/tvLog"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Ready.\n"
+            android:textColor="#00ff88"
+            android:textSize="12sp"
+            android:fontFamily="monospace"/>
+    </ScrollView>
+
+    <!-- Footer -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="tiny-web.uk  •  MIT Licence  •  v1.0"
+        android:textSize="10sp"
+        android:textColor="#334455"
+        android:gravity="center"
+        android:paddingTop="6dp"/>
+
+</LinearLayout>
