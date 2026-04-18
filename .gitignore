@@ -14,3 +14,4 @@ captures/
 # Generated
 app/release/
 app/debug/
+google-services.json

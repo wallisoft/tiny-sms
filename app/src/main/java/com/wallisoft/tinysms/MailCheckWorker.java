@@ -1,6 +1,7 @@
 package com.wallisoft.tinysms;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.telephony.SmsManager;
 import android.util.Log;
 
@@ -13,10 +14,12 @@ import java.util.List;
 
 /**
  * MailCheckWorker
- * Runs every 5 minutes via WorkManager.
- *
- * Pass 1 - Outbound: fetch unread "sms" subject emails → send as SMS
- * Pass 2 - Inbound:  poll SMS inbox for new replies → email back to sender
+ * Runs on schedule (5 min) and on FCM wake.
+ * 1. Checks Gmail for pending outbound SMS
+ * 2. Sends SMS via SmsManager
+ * 3. Polls SMS inbox for inbound messages
+ * 4. Forwards inbound SMS via Gmail
+ * 5. Sends heartbeat to server
  */
 public class MailCheckWorker extends Worker {
 
@@ -30,70 +33,88 @@ public class MailCheckWorker extends Worker {
     @NonNull
     @Override
     public Result doWork() {
-        Context      ctx     = getApplicationContext();
-        LogStore     log     = LogStore.get(ctx);
-        GmailHelper  gmail   = new GmailHelper(ctx);
-        ReplyTracker tracker = ReplyTracker.get(ctx);
-        SmsPoller    poller  = new SmsPoller(ctx);
+        Context ctx = getApplicationContext();
 
-        log.append("Worker: running...");
-
-        // ----------------------------------------------------------------
-        // Pass 1: emails → SMS (outbound)
-        // ----------------------------------------------------------------
         try {
+            GmailHelper gmail    = new GmailHelper(ctx);
+            SmsPoller   poller   = new SmsPoller(ctx);
+            ApiHelper   api      = new ApiHelper(ctx);
+
+            // ── 1. Fetch and send outbound SMS ────────────
             List<GmailHelper.SmsJob> jobs = gmail.fetchPendingSmsEmails();
-
-            if (!jobs.isEmpty()) {
-                SmsManager smsManager = SmsManager.getDefault();
-                for (GmailHelper.SmsJob job : jobs) {
-                    try {
-                        ArrayList<String> parts = smsManager.divideMessage(job.messageText);
-                        if (parts.size() == 1) {
-                            smsManager.sendTextMessage(
-                                    job.phoneNumber, null, job.messageText, null, null);
-                        } else {
-                            smsManager.sendMultipartTextMessage(
-                                    job.phoneNumber, null, parts, null, null);
-                        }
-                        tracker.store(job.phoneNumber, job.replyToEmail);
-                        log.append("SMS SENT → " + job.phoneNumber
-                                + "  [" + job.messageText.length() + " chars]"
-                                + "  reply→" + job.replyToEmail);
-                    } catch (Exception e) {
-                        log.append("SMS FAIL → " + job.phoneNumber + ": " + e.getMessage());
-                    }
-                }
-            } else {
-                log.append("Worker: no outbound emails.");
+            for (GmailHelper.SmsJob job : jobs) {
+                sendSms(ctx, gmail, api, job);
             }
-        } catch (Exception e) {
-            log.append("Worker outbound error: " + e.getMessage());
-            Log.e(TAG, "Outbound error", e);
-        }
 
-        // ----------------------------------------------------------------
-        // Pass 2: SMS inbox → email replies (inbound)
-        // ----------------------------------------------------------------
-        try {
+            // ── 2. Poll inbound SMS and forward to email ──
             List<SmsPoller.SmsReply> replies = poller.pollNewReplies();
             for (SmsPoller.SmsReply reply : replies) {
-                String emailAddr = tracker.lookup(reply.number);
-                if (emailAddr == null) {
-                    log.append("SMS IN (untracked) ← " + reply.number);
-                    continue;
+                // Try reply tracker first (maps number → original sender)
+                String forwardTo = ReplyTracker.get(ctx).lookup(reply.number);
+                if (forwardTo != null) {
+                    // Send reply back to original sender
+                    boolean ok = gmail.sendReplyEmail(
+                            forwardTo, reply.number, reply.body);
+                    LogStore.get(ctx).append(
+                            "SMS REPLY ← " + reply.number
+                            + (ok ? " → forwarded" : " → forward failed"));
+                } else {
+                    // Unknown number - forward to gateway account owner
+                    boolean ok = gmail.forwardInboundSms(
+                            reply.number, reply.body);
+                    LogStore.get(ctx).append(
+                            "SMS IN ← " + reply.number
+                            + (ok ? " → forwarded" : " → forward failed"));
                 }
-                log.append("SMS IN ← " + reply.number + ": " + reply.body);
-                boolean ok = gmail.sendReplyEmail(emailAddr, reply.number, reply.body);
-                log.append(ok
-                        ? "EMAIL SENT → " + emailAddr
-                        : "EMAIL FAIL → " + emailAddr);
             }
-        } catch (Exception e) {
-            log.append("Worker inbound error: " + e.getMessage());
-            Log.e(TAG, "Inbound error", e);
-        }
 
-        return Result.success();
+            // ── 3. Heartbeat ──────────────────────────────
+            api.sendHeartbeat();
+
+            return Result.success();
+
+        } catch (Exception e) {
+            Log.e(TAG, "doWork failed: " + e.getMessage());
+            LogStore.get(ctx).append("Mail check error: " + e.getMessage());
+            return Result.retry();
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Send a single SMS job
+    // -----------------------------------------------------------------------
+    private void sendSms(Context ctx, GmailHelper gmail,
+                          ApiHelper api, GmailHelper.SmsJob job) {
+        try {
+            SmsManager sms = SmsManager.getDefault();
+            ArrayList<String> parts = sms.divideMessage(job.messageText);
+
+            if (parts.size() == 1) {
+                sms.sendTextMessage(
+                        job.phoneNumber, null, job.messageText, null, null);
+            } else {
+                sms.sendMultipartTextMessage(
+                        job.phoneNumber, null, parts, null, null);
+            }
+
+            // Store mapping for reply routing
+            if (job.replyToEmail != null && !job.replyToEmail.isEmpty()) {
+                ReplyTracker.get(ctx).store(job.phoneNumber, job.replyToEmail);
+            }
+
+            LogStore.get(ctx).append(
+                    "SMS SENT → " + job.phoneNumber
+                    + "  [" + job.messageText.length() + " chars]");
+
+            // Confirm to server
+            api.sendSmsConfirmation(
+                    job.phoneNumber, job.messageText.length(),
+                    job.replyToEmail);
+
+        } catch (Exception e) {
+            LogStore.get(ctx).append(
+                    "SMS FAIL → " + job.phoneNumber + ": " + e.getMessage());
+            Log.e(TAG, "sendSms failed: " + e.getMessage());
+        }
     }
 }

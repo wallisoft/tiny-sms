@@ -7,66 +7,136 @@ import android.os.Bundle;
 import android.telephony.SmsMessage;
 import android.util.Log;
 
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-
 /**
  * SmsReceiver
- * Listens for incoming SMS messages.
- * If the sender's number is in ReplyTracker, forwards the reply back via Gmail.
+ * Fires instantly when SMS arrives via broadcast
+ * Handles both VALIDATE pattern and reply forwarding
+ * Fallback: SmsPoller catches anything missed here
  */
 public class SmsReceiver extends BroadcastReceiver {
 
-    private static final String TAG    = "SmsReceiver";
-    private static final String PDUS   = "pdus";
-    private static final String FORMAT = "format";
-
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private static final String TAG = "SmsReceiver";
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (!"android.provider.Telephony.SMS_RECEIVED".equals(intent.getAction())) return;
+        android.util.Log.e("SMSRECEIVER", 
+            "onReceive called! action=" + intent.getAction());
+        LogStore.get(context).append(
+            "SMS broadcast: " + intent.getAction());
+        String action = intent.getAction();
+        if (!android.provider.Telephony.Sms.Intents
+                .SMS_RECEIVED_ACTION.equals(action) &&
+            !"android.provider.Telephony.SMS_DELIVER".equals(action)) {
+            return;
+        }
 
         Bundle bundle = intent.getExtras();
         if (bundle == null) return;
 
-        Object[] pdus   = (Object[]) bundle.get(PDUS);
-        String   format = bundle.getString(FORMAT);
-        if (pdus == null) return;
+        Object[] pdus  = (Object[]) bundle.get("pdus");
+        String   format = bundle.getString("format");
+        if (pdus == null || pdus.length == 0) return;
 
-        // Reconstruct full message (may arrive in multiple PDUs)
-        StringBuilder body = new StringBuilder();
-        String sender = null;
+        // Combine multi-part SMS
+        StringBuilder fullBody = new StringBuilder();
+        String fromNumber = null;
 
         for (Object pdu : pdus) {
-            SmsMessage sms = SmsMessage.createFromPdu((byte[]) pdu, format);
-            if (sender == null) sender = sms.getOriginatingAddress();
-            body.append(sms.getMessageBody());
+            try {
+                SmsMessage msg = SmsMessage.createFromPdu(
+                        (byte[]) pdu, format);
+                if (msg == null) continue;
+                if (fromNumber == null) {
+                    fromNumber = msg.getOriginatingAddress();
+                }
+                if (msg.getMessageBody() != null) {
+                    fullBody.append(msg.getMessageBody());
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "PDU parse: " + e.getMessage());
+            }
         }
 
-        final String fromNumber = sender;
-        final String msgBody    = body.toString();
+        if (fromNumber == null || fullBody.length() == 0) return;
 
-        LogStore.get(context).append("SMS IN ← " + fromNumber + ": " + msgBody);
+        String body = fullBody.toString();
+        Log.d(TAG, "SMS from: " + fromNumber);
 
-        // Check if we have an email to reply to
-        String emailAddr = ReplyTracker.get(context).lookup(fromNumber);
-        if (emailAddr == null) {
-            Log.d(TAG, "No reply address for " + fromNumber + " - ignoring");
-            return;
+        // ── VALIDATE pattern ──────────────────────────────
+        if (body.contains("VALIDATE-")) {
+            handleValidation(context, fromNumber, body);
+            return; // Don't forward validation SMS
         }
 
-        final String replyTo = emailAddr;
-        final Context appCtx = context.getApplicationContext();
+        // ── Reply forwarding ──────────────────────────────
+        // Check if reply forwarding is enabled
+        android.content.SharedPreferences prefs =
+                context.getSharedPreferences(
+                        GmailHelper.PREFS, Context.MODE_PRIVATE);
+        boolean replyEnabled = prefs.getBoolean(
+                "reply_enabled", false);
+        String  licKey       = prefs.getString("licence_key", null);
+        boolean isPro        = licKey != null && !licKey.isEmpty();
 
-        // Do network IO off the main thread
-        executor.execute(() -> {
-            GmailHelper gmail = new GmailHelper(appCtx);
-            boolean ok = gmail.sendReplyEmail(replyTo, fromNumber, msgBody);
-            LogStore.get(appCtx).append(
-                    ok ? "EMAIL SENT → " + replyTo + " (reply from " + fromNumber + ")"
-                       : "EMAIL FAIL → " + replyTo
-            );
-        });
+        if (!isPro || !replyEnabled) return;
+
+        // Forward via Gmail on background thread
+        String finalFrom = fromNumber;
+        new Thread(() -> {
+            try {
+                GmailHelper gmail = new GmailHelper(context);
+                ReplyTracker tracker = ReplyTracker.get(context);
+
+                // Check if we have a reply-to mapping
+                String replyTo = tracker.lookup(finalFrom);
+
+                if (replyTo != null && !replyTo.isEmpty()) {
+                    // Known sender - reply to original email sender
+                    boolean ok = gmail.sendReplyEmail(
+                            replyTo, finalFrom, body);
+                    LogStore.get(context).append(
+                            "SMS REPLY ← " + finalFrom
+                                    + (ok ? " → forwarded to " + replyTo
+                                    : " → forward failed"));
+                } else {
+                    // Unknown sender - forward to gateway account
+                    boolean ok = gmail.forwardInboundSms(
+                            finalFrom, body);
+                    LogStore.get(context).append(
+                            "SMS IN ← " + finalFrom
+                                    + (ok ? " → forwarded"
+                                    : " → forward failed"));
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Forward failed: " + e.getMessage());
+                LogStore.get(context).append(
+                        "Forward error: " + e.getMessage());
+            }
+        }).start();
+    }
+
+    // ── Handle SIM validation SMS ─────────────────────────
+    private void handleValidation(Context context,
+                                  String from,
+                                  String body) {
+        java.util.regex.Matcher m =
+                java.util.regex.Pattern
+                        .compile("VALIDATE-(\\d+)-([a-f0-9]{16})",
+                                java.util.regex.Pattern.CASE_INSENSITIVE)
+                        .matcher(body);
+
+        if (!m.find()) return;
+
+        int    slot      = Integer.parseInt(m.group(1));
+        String androidId = m.group(2);
+
+        if (slot < 1 || slot > 2) return;
+
+        LogStore.get(context).append(
+                "SIM" + slot + " validated: " + from);
+
+        new Thread(() ->
+                new ApiHelper(context).reportSimValidation(
+                        androidId, slot, from)).start();
     }
 }
