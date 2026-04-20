@@ -46,8 +46,12 @@ public class MailCheckWorker extends Worker {
                 sendSms(ctx, gmail, api, job);
             }
 
-            // ── 2. Poll inbound SMS and forward to email ──
-            List<SmsPoller.SmsReply> replies = poller.pollNewReplies();
+            // ── 2. Poll inbound SMS - validation only ────
+            // Reply forwarding handled by SmsReceiver (instant)
+            // Only run validation scan here
+            poller.scanValidationOnly();
+            List<SmsPoller.SmsReply> replies = new java.util.ArrayList<>();
+            // Disabled - SmsReceiver handles forwarding
             for (SmsPoller.SmsReply reply : replies) {
                 // Try reply tracker first (maps number → original sender)
                 String forwardTo = ReplyTracker.get(ctx).lookup(reply.number);

@@ -55,7 +55,6 @@ public class SmsPoller {
 
     // ── Poll for new replies and validate SIMs ────────────
     public List<SmsReply> pollNewReplies() {
-        LogStore.get(context).append("SMS poll running...");
         List<SmsReply> replies = new ArrayList<>();
         SharedPreferences prefs = context.getSharedPreferences(
                 PREFS, Context.MODE_PRIVATE);
@@ -76,23 +75,16 @@ public class SmsPoller {
                     "date DESC");
 
             if (cursor == null) {
-                LogStore.get(context).append("SMS cursor null!");
                 return replies;
             }
 
             int totalCount = cursor.getCount();
             int lastCount  = prefs.getInt(KEY_COUNT, -1);
 
-            LogStore.get(context).append(
-                    "SMS total=" + totalCount
-                    + " last=" + lastCount);
-
             // First run - save count as baseline
             if (lastCount == -1) {
                 prefs.edit().putInt(KEY_COUNT, totalCount).apply();
                 cursor.close();
-                LogStore.get(context).append(
-                        "SMS baseline=" + totalCount);
                 return replies;
             }
 
@@ -105,7 +97,6 @@ public class SmsPoller {
                 return replies;
             }
 
-            LogStore.get(context).append("SMS new=" + newCount);
 
             // Process newest ones
             int processed = 0;
@@ -147,6 +138,13 @@ public class SmsPoller {
         return replies;
     }
 
+    // ── Public validation-only scan ─────────────────────
+    public void scanValidationOnly() {
+        SharedPreferences prefs = context.getSharedPreferences(
+                PREFS, Context.MODE_PRIVATE);
+        scanForValidation(prefs);
+    }
+
     // ── Scan ALL SMS for VALIDATE pattern ─────────────────
     private void scanForValidation(SharedPreferences prefs) {
         try {
@@ -164,8 +162,6 @@ public class SmsPoller {
 
             int found = cursor.getCount();
             if (found > 0) {
-                LogStore.get(context).append(
-                        "VALIDATE scan: " + found + " found");
             }
 
             while (cursor.moveToNext()) {
@@ -197,6 +193,12 @@ public class SmsPoller {
                 String key = androidId + "-" + slot;
                 if (alreadyDone.contains(key)) continue;
                 if (slot < 1 || slot > 2) continue;
+
+                // Only validate OUR own device_id
+                String myId = android.provider.Settings.Secure
+                        .getString(context.getContentResolver(),
+                        android.provider.Settings.Secure.ANDROID_ID);
+                if (!androidId.equals(myId)) continue;
 
                 LogStore.get(context).append(
                         "SIM" + slot + " validated: " + number);

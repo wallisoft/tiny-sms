@@ -56,6 +56,7 @@ public class MainActivity extends AppCompatActivity {
             Manifest.permission.SEND_SMS,
             Manifest.permission.READ_SMS,
             Manifest.permission.RECEIVE_SMS,
+            // READ_PHONE_STATE requested separately only if needed
     };
 
     // UI
@@ -63,8 +64,6 @@ public class MainActivity extends AppCompatActivity {
     private SwitchCompat switchWorker;
     private TextView     tvStatus, tvLog, tvProStatus, tvReplyStatus;
     private ScrollView   scrollLog;
-
-    private SmsObserver smsObserver;
 
     // Google Sign-In
     private GoogleSignInClient             signInClient;
@@ -74,8 +73,10 @@ public class MainActivity extends AppCompatActivity {
     private PowerManager.WakeLock wakeLock;
 
     // Background
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
-    private final Handler         handler  = new Handler(Looper.getMainLooper());
+    private final ExecutorService executor =
+            Executors.newSingleThreadExecutor();
+    private final Handler handler =
+            new Handler(Looper.getMainLooper());
 
     private final Runnable logRefresh = new Runnable() {
         @Override public void run() {
@@ -84,9 +85,7 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
-    // -----------------------------------------------------------------------
-    // Lifecycle
-    // -----------------------------------------------------------------------
+    // ── Lifecycle ─────────────────────────────────────────
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -94,67 +93,48 @@ public class MainActivity extends AppCompatActivity {
         bindViews();
         setupWakeLock();
         setupGoogleSignIn();
-        requestSmsPermissions();
+        requestPermissions();
         restoreState();
         wireListeners();
-
-        // Refresh FCM token on start
-        executor.execute(() -> new ApiHelper(this).refreshFcmToken());
+        executor.execute(() ->
+                new ApiHelper(this).refreshFcmToken());
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire(3600000L);
+        if (wakeLock != null && !wakeLock.isHeld())
+            wakeLock.acquire(3600000L);
         handler.post(logRefresh);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        if (wakeLock != null && wakeLock.isHeld())
+            wakeLock.release();
         handler.removeCallbacks(logRefresh);
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        if (wakeLock != null && wakeLock.isHeld())
+            wakeLock.release();
     }
 
-    // -----------------------------------------------------------------------
-    // Wake lock
-    // -----------------------------------------------------------------------
+    // ── Wake lock ─────────────────────────────────────────
     private void setupWakeLock() {
-        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        PowerManager pm = (PowerManager)
+                getSystemService(Context.POWER_SERVICE);
         wakeLock = pm.newWakeLock(
-                PowerManager.SCREEN_DIM_WAKE_LOCK | PowerManager.ON_AFTER_RELEASE,
+                PowerManager.SCREEN_DIM_WAKE_LOCK |
+                PowerManager.ON_AFTER_RELEASE,
                 "TinySMS:WakeLock");
         wakeLock.setReferenceCounted(false);
     }
 
-    private void startSmsObserver() {
-        if (smsObserver != null) return; // already running
-        smsObserver = new SmsObserver(this, handler);
-        // Watch ALL sms not just inbox - Samsung compatibility
-        getContentResolver().registerContentObserver(
-                android.net.Uri.parse("content://sms"),
-                true,
-                smsObserver);
-        LogStore.get(this).append("SMS observer started.");
-    }
-     
-    private void stopSmsObserver() {
-        if (smsObserver == null) return;
-        getContentResolver().unregisterContentObserver(smsObserver);
-        smsObserver = null;
-        LogStore.get(this).append("SMS observer stopped.");
-    }
- 
-
-    // -----------------------------------------------------------------------
-    // View binding
-    // -----------------------------------------------------------------------
+    // ── View binding ──────────────────────────────────────
     private void bindViews() {
         btnLink       = findViewById(R.id.btnLinkGmail);
         btnCheck      = findViewById(R.id.btnCheckMail);
@@ -168,12 +148,11 @@ public class MainActivity extends AppCompatActivity {
         scrollLog     = findViewById(R.id.scrollLog);
     }
 
-    // -----------------------------------------------------------------------
-    // Google Sign-In
-    // -----------------------------------------------------------------------
+    // ── Google Sign-In ────────────────────────────────────
     private void setupGoogleSignIn() {
-        GoogleSignInOptions gso = new GoogleSignInOptions.Builder(
-                GoogleSignInOptions.DEFAULT_SIGN_IN)
+        GoogleSignInOptions gso =
+                new GoogleSignInOptions.Builder(
+                        GoogleSignInOptions.DEFAULT_SIGN_IN)
                 .requestEmail()
                 .requestScopes(new Scope(
                         "https://www.googleapis.com/auth/gmail.modify"))
@@ -181,22 +160,23 @@ public class MainActivity extends AppCompatActivity {
         signInClient   = GoogleSignIn.getClient(this, gso);
         signInLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
-                result -> GoogleSignIn.getSignedInAccountFromIntent(
-                                result.getData())
+                result -> GoogleSignIn
+                        .getSignedInAccountFromIntent(result.getData())
                         .addOnSuccessListener(this::onSignInSuccess)
                         .addOnFailureListener(e -> {
                             LogStore.get(this).append(
                                     "Sign-in failed: " + e.getMessage());
                             toast("Sign-in failed: " + e.getMessage());
-                        })
-        );
+                        }));
     }
 
+    // ── Sign-in success ───────────────────────────────────
     private void onSignInSuccess(GoogleSignInAccount account) {
         String email = account.getEmail();
-        SharedPreferences prefs = getSharedPreferences(
-                GmailHelper.PREFS, MODE_PRIVATE);
-        prefs.edit().putString(GmailHelper.KEY_ACCOUNT, email).apply();
+        getSharedPreferences(GmailHelper.PREFS, MODE_PRIVATE)
+                .edit()
+                .putString(GmailHelper.KEY_ACCOUNT, email)
+                .apply();
 
         tvStatus.setText("Signed in: " + email);
         btnCheck.setEnabled(true);
@@ -204,63 +184,43 @@ public class MainActivity extends AppCompatActivity {
         LogStore.get(this).append("Gmail linked: " + email);
         toast("Linked: " + email);
 
-        // Register device with server
-        String deviceId = getOrCreateDeviceId();
-        executor.execute(() ->
-                new ApiHelper(this).registerDevice(email));
+        executor.execute(() -> {
+            // Register device with server
+            new ApiHelper(this).registerDevice(email);
+            // Setup Gmail push notifications via Pub/Sub
+            new GmailWatchHelper(this).setupWatch();
+        });
     }
 
-    // -----------------------------------------------------------------------
-    // Device ID
-    // -----------------------------------------------------------------------
-    private String getOrCreateDeviceId() {
-        SharedPreferences prefs = getSharedPreferences(
-                GmailHelper.PREFS, MODE_PRIVATE);
-        String id = prefs.getString("device_id", null);
-        if (id == null) {
-            id = "TSMS-" + java.util.UUID.randomUUID()
-                    .toString().replace("-", "").substring(0, 16);
-            prefs.edit().putString("device_id", id).apply();
-        }
-        return id;
-    }
-
-    // -----------------------------------------------------------------------
-    // Restore state
-    // -----------------------------------------------------------------------
+    // ── Restore state ─────────────────────────────────────
     private void restoreState() {
         SharedPreferences prefs = getSharedPreferences(
                 GmailHelper.PREFS, MODE_PRIVATE);
-        String  account  = prefs.getString(GmailHelper.KEY_ACCOUNT, null);
-        boolean replyOn  = prefs.getBoolean("reply_enabled", false);
-        String  licKey   = prefs.getString("licence_key", null);
-        boolean isPro    = licKey != null && !licKey.isEmpty();
+        String  account = prefs.getString(
+                GmailHelper.KEY_ACCOUNT, null);
+        String  licKey  = prefs.getString("licence_key", null);
+        boolean isPro   = licKey != null && !licKey.isEmpty();
+        boolean replyOn = prefs.getBoolean("reply_enabled", false);
 
         if (account != null) {
             tvStatus.setText("Signed in: " + account);
             btnCheck.setEnabled(true);
             btnLink.setText("✓  Gmail Linked  (tap to unlink)");
         }
-
         updateProStatus(licKey);
         updateReplySwitch(isPro, replyOn);
-
-        if (isPro && replyOn) {
-            // Only set baseline if never set before
-            SharedPreferences sp = getSharedPreferences(
-                    GmailHelper.PREFS, MODE_PRIVATE);
-            scheduleReplyWorker(this);
-            startSmsObserver();
-        }
+        if (isPro && replyOn) scheduleReplyWorker(this);
     }
 
     private void updateProStatus(String licKey) {
         boolean isPro = licKey != null && !licKey.isEmpty();
         if (isPro) {
-            tvProStatus.setText("⭐ Pro licence active  ·  tap to manage");
+            tvProStatus.setText(
+                    "⭐ Pro licence active  ·  tap to manage");
             tvProStatus.setTextColor(0xFF538d4e);
         } else {
-            tvProStatus.setText("Free plan  ·  tap to enter licence key");
+            tvProStatus.setText(
+                    "Free plan  ·  tap to enter licence key");
             tvProStatus.setTextColor(0xFF888888);
         }
     }
@@ -270,33 +230,42 @@ public class MainActivity extends AppCompatActivity {
         switchWorker.setChecked(isPro && replyOn);
         if (isPro) {
             tvReplyStatus.setText(replyOn
-                    ? "Active  ·  polling every " + POLL_MINS + " min"
+                    ? "Active · instant via SMS broadcast"
                     : "Tap to enable reply forwarding");
-            tvReplyStatus.setTextColor(replyOn ? 0xFF538d4e : 0xFF556688);
+            tvReplyStatus.setTextColor(
+                    replyOn ? 0xFF538d4e : 0xFF556688);
         } else {
-            tvReplyStatus.setText("Pro plan required  ·  tiny-sms.uk");
+            tvReplyStatus.setText(
+                    "Pro plan required  ·  tiny-sms.uk");
             tvReplyStatus.setTextColor(0xFF556688);
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Listeners
-    // -----------------------------------------------------------------------
+    // ── Wire listeners ────────────────────────────────────
     private void wireListeners() {
 
         btnLink.setOnClickListener(v -> {
             SharedPreferences prefs = getSharedPreferences(
                     GmailHelper.PREFS, MODE_PRIVATE);
-            if (prefs.getString(GmailHelper.KEY_ACCOUNT, null) != null) {
+            if (prefs.getString(
+                    GmailHelper.KEY_ACCOUNT, null) != null) {
+                // Unlink
+                executor.execute(() -> {
+                    new ApiHelper(this).unregisterDevice();
+                    new GmailWatchHelper(this).stopWatch();
+                });
                 signInClient.signOut().addOnCompleteListener(t -> {
-                    prefs.edit().remove(GmailHelper.KEY_ACCOUNT).apply();
+                    prefs.edit()
+                         .remove(GmailHelper.KEY_ACCOUNT)
+                         .apply();
                     tvStatus.setText("Not signed in");
                     btnCheck.setEnabled(false);
                     btnLink.setText("🔗  Link Gmail Account");
                     LogStore.get(this).append("Gmail unlinked.");
                 });
             } else {
-                signInLauncher.launch(signInClient.getSignInIntent());
+                signInLauncher.launch(
+                        signInClient.getSignInIntent());
             }
         });
 
@@ -307,12 +276,8 @@ public class MainActivity extends AppCompatActivity {
             executor.execute(() -> {
                 GmailHelper gmail = new GmailHelper(this);
                 dispatchJobs(gmail.fetchPendingSmsEmails());
-
-                // Always poll SMS inbox
-                // Needed for SIM validation (free) and replies (Pro)
-                processReplies(gmail,
-                        new SmsPoller(this).pollNewReplies());
-
+                // Validation scan
+                new SmsPoller(this).scanValidationOnly();
                 handler.post(() -> {
                     btnCheck.setEnabled(true);
                     btnCheck.setText("📬  Check Mail Now");
@@ -321,32 +286,30 @@ public class MainActivity extends AppCompatActivity {
             });
         });
 
-        // Reply switch - Pro only
         switchWorker.setOnCheckedChangeListener((btn, checked) -> {
             SharedPreferences prefs = getSharedPreferences(
                     GmailHelper.PREFS, MODE_PRIVATE);
-            boolean isPro = prefs.getString("licence_key", null) != null;
-
+            boolean isPro = prefs.getString(
+                    "licence_key", null) != null;
             if (!isPro) {
-                // Should never happen since switch disabled for free
                 switchWorker.setChecked(false);
                 showLicenceDialog();
                 return;
             }
-
-            prefs.edit().putBoolean("reply_enabled", checked).apply();
-            updateReplySwitch(true, checked);
-
+            prefs.edit()
+                 .putBoolean("reply_enabled", checked)
+                 .apply();
+            updateReplySwitch(isPro, checked);
             if (checked) {
-                SmsPoller.setBaseline(this);
                 checkDefaultSmsApp();
                 scheduleReplyWorker(this);
-                startSmsObserver();
-                LogStore.get(this).append("SMS reply forwarding enabled.");
+                LogStore.get(this).append(
+                        "SMS reply forwarding enabled.");
             } else {
-                WorkManager.getInstance(this).cancelUniqueWork(WORK_TAG);
-                stopSmsObserver();
-                LogStore.get(this).append("SMS reply forwarding disabled.");
+                WorkManager.getInstance(this)
+                           .cancelUniqueWork(WORK_TAG);
+                LogStore.get(this).append(
+                        "SMS reply forwarding disabled.");
             }
         });
 
@@ -356,10 +319,8 @@ public class MainActivity extends AppCompatActivity {
         });
 
         btnExport.setOnClickListener(v -> showExportDialog());
-
         tvProStatus.setOnClickListener(v -> showLicenceDialog());
 
-        // Tapping reply status when not Pro shows upgrade prompt
         tvReplyStatus.setOnClickListener(v -> {
             SharedPreferences prefs = getSharedPreferences(
                     GmailHelper.PREFS, MODE_PRIVATE);
@@ -367,15 +328,17 @@ public class MainActivity extends AppCompatActivity {
                 new AlertDialog.Builder(this)
                         .setTitle("Pro Feature")
                         .setMessage(
-                                "SMS Reply Forwarding is a TinySMS Pro feature.\n\n"
-                                        + "When enabled, replies to your SMS messages are "
-                                        + "automatically forwarded back to the original "
-                                        + "email sender.\n\n"
-                                        + "Visit tiny-sms.uk to upgrade.")
-                        .setPositiveButton("View Plans", (d, w) -> {
-                            startActivity(new Intent(Intent.ACTION_VIEW,
-                                    Uri.parse("https://tiny-sms.uk")));
-                        })
+                                "SMS Reply Forwarding is a "
+                                + "TinySMS Pro feature.\n\n"
+                                + "Replies to your SMS messages are "
+                                + "automatically forwarded back to "
+                                + "the original email sender.\n\n"
+                                + "Visit tiny-sms.uk to upgrade.")
+                        .setPositiveButton("View Plans", (d, w) ->
+                                startActivity(new Intent(
+                                        Intent.ACTION_VIEW,
+                                        Uri.parse(
+                                            "https://tiny-sms.uk"))))
                         .setNegativeButton("Enter Key", (d, w) ->
                                 showLicenceDialog())
                         .show();
@@ -383,112 +346,132 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // -----------------------------------------------------------------------
-    // Licence dialog
-    // -----------------------------------------------------------------------
-// ── Replace showLicenceDialog() in MainActivity.java ──────
+    // ── Default SMS app prompt ────────────────────────────
+    private void checkDefaultSmsApp() {
+        String defaultPkg = android.provider.Telephony.Sms
+                .getDefaultSmsPackage(this);
+        if (getPackageName().equals(defaultPkg)) {
+            LogStore.get(this).append(
+                    "TinySMS is default SMS app ✅");
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Enable Full SMS Reply Forwarding")
+                .setMessage(
+                        "For reliable SMS forwarding, TinySMS "
+                        + "needs to be the default SMS app.\n\n"
+                        + "Your messages will still appear in "
+                        + "your normal SMS app.\n\n"
+                        + "You can change back anytime in:\n"
+                        + "Settings → Apps → Default apps → SMS")
+                .setPositiveButton("Set as Default", (d, w) -> {
+                    Intent intent = new Intent(
+                        android.provider.Telephony.Sms.Intents
+                            .ACTION_CHANGE_DEFAULT);
+                    intent.putExtra(
+                        android.provider.Telephony.Sms.Intents
+                            .EXTRA_PACKAGE_NAME,
+                        getPackageName());
+                    startActivity(intent);
+                })
+                .setNegativeButton("Not Now", null)
+                .show();
+    }
 
+    // ── Licence dialog ────────────────────────────────────
     private void showLicenceDialog() {
         SharedPreferences prefs = getSharedPreferences(
                 GmailHelper.PREFS, MODE_PRIVATE);
         String current   = prefs.getString("licence_key", "");
-        String androidId = android.provider.Settings.Secure.getString(
-                getContentResolver(),
-                android.provider.Settings.Secure.ANDROID_ID);
+        String androidId = android.provider.Settings.Secure
+                .getString(getContentResolver(),
+                        android.provider.Settings.Secure.ANDROID_ID);
         boolean isPro = current != null && !current.isEmpty();
 
         if (isPro) {
-            // ── Pro management dialog ─────────────────────────
             String masked = current.length() > 12
                     ? current.substring(0, 8) + "..."
-                    + current.substring(current.length() - 4)
+                      + current.substring(current.length() - 4)
                     : current;
-
             new AlertDialog.Builder(this)
                     .setTitle("⭐ Pro Licence Active")
                     .setMessage(
                             "Licence: " + masked + "\n\n"
-                                    + "Device ID:\n" + androidId + "\n\n"
-                                    + "Manage your subscription at tiny-sms.uk")
+                            + "Device ID:\n" + androidId + "\n\n"
+                            + "Manage at tiny-sms.uk")
                     .setPositiveButton("Done", null)
                     .setNeutralButton("Clear", (d, w) ->
                             confirmClearLicence(prefs))
                     .setNegativeButton("Dashboard", (d, w) ->
                             startActivity(new Intent(
                                     Intent.ACTION_VIEW,
-                                    android.net.Uri.parse(
-                                            "https://tiny-sms.uk/dashboard/"))))
+                                    Uri.parse(
+                                        "https://tiny-sms.uk/dashboard/"))))
                     .show();
-
         } else {
-            // ── Auto-fetch licence from server ────────────────
-            // Show brief loading toast
             toast("Checking for licence...");
-
             LicenceHelper.fetchLicence(this,
                     new LicenceHelper.LicenceCallback() {
-
-                        @Override
-                        public void onFound(String key, String plan) {
-                            prefs.edit().putString("licence_key", key).apply();
-                            handler.post(() -> {
-                                updateProStatus(key);
-                                updateReplySwitch(true, false);
-                                LogStore.get(MainActivity.this).append(
-                                        "Pro licence activated automatically!");
-                                toast("⭐ Pro licence activated!");
-                                // Re-register to update server
-                                String account = prefs.getString(
-                                        GmailHelper.KEY_ACCOUNT, "");
-                                executor.execute(() ->
-                                        new ApiHelper(MainActivity.this)
-                                                .registerDevice(account));
-                            });
-                        }
-
-                        @Override
-                        public void onNotFound(String url) {
-                            handler.post(() -> showManualLicenceDialog(
-                                    prefs, "", androidId, url));
-                        }
-
-                        @Override
-                        public void onError() {
-                            handler.post(() -> showManualLicenceDialog(
-                                    prefs, "", androidId,
-                                    "https://tiny-sms.uk"));
-                        }
+                @Override
+                public void onFound(String key, String plan) {
+                    prefs.edit().putString("licence_key", key)
+                         .apply();
+                    handler.post(() -> {
+                        updateProStatus(key);
+                        updateReplySwitch(true, false);
+                        toast("⭐ Pro licence activated!");
+                        LogStore.get(MainActivity.this).append(
+                                "Pro licence activated!");
+                        String account = prefs.getString(
+                                GmailHelper.KEY_ACCOUNT, "");
+                        executor.execute(() ->
+                                new ApiHelper(MainActivity.this)
+                                        .registerDevice(account));
                     });
+                }
+                @Override
+                public void onNotFound(String url) {
+                    handler.post(() -> showManualLicenceDialog(
+                            prefs, "", androidId, url));
+                }
+                @Override
+                public void onError() {
+                    handler.post(() -> showManualLicenceDialog(
+                            prefs, "", androidId,
+                            "https://tiny-sms.uk"));
+                }
+            });
         }
     }
 
-    // ── Confirm licence removal ───────────────────────────────
     private void confirmClearLicence(SharedPreferences prefs) {
         new AlertDialog.Builder(this)
                 .setTitle("Remove Pro Licence?")
-                .setMessage("This will disable Pro features including "
-                        + "SMS Reply Forwarding.")
+                .setMessage(
+                        "This will disable Pro features "
+                        + "including SMS Reply Forwarding.")
                 .setPositiveButton("Remove", (d, w) -> {
-                    prefs.edit().remove("licence_key").apply();
-                    prefs.edit().putBoolean("reply_enabled", false).apply();
+                    prefs.edit()
+                         .remove("licence_key")
+                         .putBoolean("reply_enabled", false)
+                         .apply();
                     updateProStatus(null);
                     updateReplySwitch(false, false);
                     WorkManager.getInstance(this)
-                            .cancelUniqueWork(WORK_TAG);
-                    LogStore.get(this).append("Pro licence removed.");
+                               .cancelUniqueWork(WORK_TAG);
+                    LogStore.get(this).append(
+                            "Pro licence removed.");
                     toast("Pro licence removed.");
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
     }
 
-    // ── Manual licence entry ──────────────────────────────────
     private void showManualLicenceDialog(SharedPreferences prefs,
-                                         String current,
-                                         String androidId,
-                                         String buyUrl) {
-        final android.widget.EditText input =
-                new android.widget.EditText(this);
+                                          String current,
+                                          String androidId,
+                                          String buyUrl) {
+        final EditText input = new EditText(this);
         input.setHint("Enter Pro licence key");
         input.setText(current);
         input.setPadding(40, 20, 40, 20);
@@ -497,11 +480,13 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle("Pro Licence Key")
                 .setMessage(
                         "Enter your licence key from tiny-sms.uk\n\n"
-                                + "Device ID:\n" + androidId)
+                        + "Device ID:\n" + androidId)
                 .setView(input)
                 .setPositiveButton("Save", (d, w) -> {
-                    String key = input.getText().toString().trim();
-                    prefs.edit().putString("licence_key", key).apply();
+                    String key = input.getText()
+                            .toString().trim();
+                    prefs.edit().putString("licence_key", key)
+                         .apply();
                     boolean isPro   = !key.isEmpty();
                     boolean replyOn = prefs.getBoolean(
                             "reply_enabled", false);
@@ -522,19 +507,18 @@ public class MainActivity extends AppCompatActivity {
                 .setNeutralButton("Get Pro", (d, w) ->
                         startActivity(new Intent(
                                 Intent.ACTION_VIEW,
-                                android.net.Uri.parse(buyUrl))))
+                                Uri.parse(buyUrl))))
                 .show();
     }
-    // -----------------------------------------------------------------------
-    // Export log
-    // -----------------------------------------------------------------------
+
+    // ── Export log ────────────────────────────────────────
     private void showExportDialog() {
         new AlertDialog.Builder(this)
                 .setTitle("Export Activity Log")
                 .setMessage(
                         "Share the activity log.\n\n"
-                                + "The log contains phone numbers and timestamps. "
-                                + "Only share with authorised personnel.")
+                        + "Contains phone numbers and timestamps. "
+                        + "Only share with authorised personnel.")
                 .setPositiveButton("Export", (d, w) -> doExportLog())
                 .setNegativeButton("Cancel", null)
                 .show();
@@ -542,44 +526,43 @@ public class MainActivity extends AppCompatActivity {
 
     private void doExportLog() {
         try {
-            String logText  = LogStore.get(this).read();
-            String ts       = new SimpleDateFormat("yyyyMMdd_HHmmss",
-                    Locale.UK).format(new Date());
+            String ts = new SimpleDateFormat(
+                    "yyyyMMdd_HHmmss", Locale.UK)
+                    .format(new Date());
             String filename = "TinySMS_log_" + ts + ".txt";
-            File outFile    = new File(getCacheDir(), filename);
-
+            File outFile = new File(getCacheDir(), filename);
             try (FileWriter fw = new FileWriter(outFile)) {
                 fw.write("TinySMS Activity Log\n");
                 fw.write("Exported: " + new Date() + "\n");
                 fw.write("Device: " + Build.MODEL + "\n");
-                fw.write("App: v" + BuildConfig.VERSION_NAME + "\n");
+                fw.write("App: v" + BuildConfig.VERSION_NAME
+                        + "\n");
                 fw.write("tiny-web.uk\n");
                 fw.write("─".repeat(40) + "\n\n");
-                fw.write(logText);
+                fw.write(LogStore.get(this).read());
             }
-
             Uri uri = FileProvider.getUriForFile(
-                    this, getPackageName() + ".fileprovider", outFile);
+                    this,
+                    getPackageName() + ".fileprovider",
+                    outFile);
             Intent share = new Intent(Intent.ACTION_SEND);
             share.setType("text/plain");
             share.putExtra(Intent.EXTRA_STREAM, uri);
-            share.putExtra(Intent.EXTRA_SUBJECT, "TinySMS Log " + ts);
-            share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(Intent.createChooser(share, "Export log via..."));
+            share.putExtra(Intent.EXTRA_SUBJECT,
+                    "TinySMS Log " + ts);
+            share.addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(
+                    share, "Export via..."));
             LogStore.get(this).append("Log exported.");
         } catch (Exception e) {
             toast("Export failed: " + e.getMessage());
         }
     }
 
-    // -----------------------------------------------------------------------
-    // SMS dispatch
-    // -----------------------------------------------------------------------
+    // ── SMS dispatch ──────────────────────────────────────
     private void dispatchJobs(List<GmailHelper.SmsJob> jobs) {
-        if (jobs.isEmpty()) {
-            LogStore.get(this).append("No pending SMS emails.");
-            return;
-        }
+        if (jobs.isEmpty()) return;
         android.telephony.SmsManager sms =
                 android.telephony.SmsManager.getDefault();
         ReplyTracker tracker = ReplyTracker.get(this);
@@ -587,75 +570,60 @@ public class MainActivity extends AppCompatActivity {
 
         for (GmailHelper.SmsJob job : jobs) {
             try {
-                ArrayList<String> parts = sms.divideMessage(job.messageText);
+                ArrayList<String> parts =
+                        sms.divideMessage(job.messageText);
                 if (parts.size() == 1) {
                     sms.sendTextMessage(job.phoneNumber, null,
                             job.messageText, null, null);
                 } else {
-                    sms.sendMultipartTextMessage(job.phoneNumber, null,
+                    sms.sendMultipartTextMessage(
+                            job.phoneNumber, null,
                             parts, null, null);
                 }
                 tracker.store(job.phoneNumber, job.replyToEmail);
                 LogStore.get(this).append(
                         "SMS SENT → " + job.phoneNumber
-                                + "  [" + job.messageText.length() + " chars]");
-                api.sendSmsConfirmation(job.phoneNumber,
-                        job.messageText.length(), job.replyToEmail);
+                        + "  [" + job.messageText.length()
+                        + " chars]");
+                api.sendSmsConfirmation(
+                        job.phoneNumber,
+                        job.messageText.length(),
+                        job.replyToEmail);
             } catch (Exception e) {
                 LogStore.get(this).append(
                         "SMS FAIL → " + job.phoneNumber
-                                + ": " + e.getMessage());
+                        + ": " + e.getMessage());
             }
         }
     }
 
-    private void processReplies(GmailHelper gmail,
-                                List<SmsPoller.SmsReply> replies) {
-        ReplyTracker tracker = ReplyTracker.get(this);
-        for (SmsPoller.SmsReply reply : replies) {
-            String email = tracker.lookup(reply.number);
-            if (email == null) {
-                // Forward to account owner
-                gmail.forwardInboundSms(reply.number, reply.body);
-                continue;
-            }
-            boolean ok = gmail.sendReplyEmail(
-                    email, reply.number, reply.body);
-            LogStore.get(this).append(
-                    "SMS REPLY ← " + reply.number
-                            + (ok ? " → forwarded to " + email
-                            : " → forward failed"));
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Log refresh
-    // -----------------------------------------------------------------------
+    // ── Log refresh ───────────────────────────────────────
     private void refreshLog() {
         tvLog.setText(LogStore.get(this).read());
-        scrollLog.post(() -> scrollLog.fullScroll(ScrollView.FOCUS_DOWN));
+        scrollLog.post(() ->
+                scrollLog.fullScroll(ScrollView.FOCUS_DOWN));
     }
 
-    // -----------------------------------------------------------------------
-    // Schedule reply polling worker (Pro only)
-    // -----------------------------------------------------------------------
+    // ── Schedule reply worker ─────────────────────────────
     public static void scheduleReplyWorker(Context ctx) {
         Constraints constraints = new Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build();
-        PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(
-                MailCheckWorker.class, POLL_MINS, TimeUnit.MINUTES)
+        PeriodicWorkRequest request =
+                new PeriodicWorkRequest.Builder(
+                        MailCheckWorker.class,
+                        POLL_MINS, TimeUnit.MINUTES)
                 .setConstraints(constraints)
                 .addTag(WORK_TAG)
                 .build();
         WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(
-                WORK_TAG, ExistingPeriodicWorkPolicy.KEEP, request);
+                WORK_TAG,
+                ExistingPeriodicWorkPolicy.KEEP,
+                request);
     }
 
-    // -----------------------------------------------------------------------
-    // Permissions
-    // -----------------------------------------------------------------------
-    private void requestSmsPermissions() {
+    // ── Permissions ───────────────────────────────────────
+    private void requestPermissions() {
         List<String> needed = new ArrayList<>();
         for (String p : SMS_PERMS) {
             if (ContextCompat.checkSelfPermission(this, p)
@@ -665,41 +633,12 @@ public class MainActivity extends AppCompatActivity {
         }
         if (!needed.isEmpty()) {
             ActivityCompat.requestPermissions(
-                    this, needed.toArray(new String[0]), 1);
+                    this,
+                    needed.toArray(new String[0]), 1);
         }
     }
 
     private void toast(String msg) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
-    }
-
-    private void checkDefaultSmsApp() {
-        String defaultPkg = android.provider.Telephony.Sms
-                .getDefaultSmsPackage(this);
-        if (getPackageName().equals(defaultPkg)) {
-            LogStore.get(this).append("TinySMS is default SMS app ✅");
-            return;
-        }
-        new AlertDialog.Builder(this)
-                .setTitle("Enable Full SMS Reply Forwarding")
-                .setMessage(
-                        "For reliable SMS forwarding, TinySMS needs "
-                                + "to be the default SMS app.\n\n"
-                                + "Your messages will still appear in Samsung "
-                                + "Messages as normal.\n\n"
-                                + "You can change back at any time in:\n"
-                                + "Settings → Apps → Default apps → SMS")
-                .setPositiveButton("Set as Default", (d, w) -> {
-                    Intent intent = new Intent(
-                            android.provider.Telephony.Sms.Intents
-                                    .ACTION_CHANGE_DEFAULT);
-                    intent.putExtra(
-                            android.provider.Telephony.Sms.Intents
-                                    .EXTRA_PACKAGE_NAME,
-                            getPackageName());
-                    startActivity(intent);
-                })
-                .setNegativeButton("Not Now", null)
-                .show();
     }
 }

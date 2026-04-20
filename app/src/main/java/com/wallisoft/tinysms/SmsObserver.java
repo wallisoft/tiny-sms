@@ -68,8 +68,6 @@ public class SmsObserver extends ContentObserver {
 
             if (cursor == null) return;
 
-            log("Observer: checking since " + lastDate);
-
             long newest = lastDate;
             int  found  = 0;
 

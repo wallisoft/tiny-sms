@@ -109,7 +109,7 @@ public class GmailHelper {
 
             List<Message> messages = response.getMessages();
             if (messages == null || messages.isEmpty()) {
-                LogStore.get(context).append("No pending SMS emails.");
+                //LogStore.get(context).append("No pending SMS emails.");
                 return jobs;
             }
 

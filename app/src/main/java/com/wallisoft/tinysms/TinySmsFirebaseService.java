@@ -76,6 +76,9 @@ public class TinySmsFirebaseService extends FirebaseMessagingService {
                 .build();
 
         WorkManager.getInstance(this)
-                .enqueue(request);
+                .enqueueUniqueWork(
+                        "tinysms_check",
+                        androidx.work.ExistingWorkPolicy.KEEP,
+                        request);
     }
 }
