@@ -12,6 +12,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center"
+        android:paddingTop="24dp"
         android:paddingBottom="4dp">
 
         <ImageView
@@ -73,10 +74,10 @@
 
     <!-- Gmail link button -->
     <Button
-        android:id="@+id/btnLinkGmail"
+        android:id="@+id/btnLinkAccount"
         android:layout_width="match_parent"
         android:layout_height="48dp"
-        android:text="🔗  Link Gmail Account"
+        android:text="Connect TinyWeb Account"
         android:textColor="#ffffff"
         android:backgroundTint="#0f3460"
         android:layout_marginBottom="8dp"/>
@@ -86,7 +87,7 @@
         android:id="@+id/btnCheckMail"
         android:layout_width="match_parent"
         android:layout_height="48dp"
-        android:text="📬  Check Mail Now"
+        android:text="🖥️  TinyWeb Console"
         android:textColor="#ffffff"
         android:backgroundTint="#16213e"
         android:enabled="false"

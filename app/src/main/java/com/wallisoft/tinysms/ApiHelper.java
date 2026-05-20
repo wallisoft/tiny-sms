@@ -25,7 +25,7 @@ public class ApiHelper {
 
     private static final String TAG     = "ApiHelper";
     private static final String API_URL = "https://tiny-web.uk/api/device.php";
-    private static final String PREFS   = GmailHelper.PREFS;
+    private static final String PREFS   = TinyWebAuth.PREFS;
     private static final String KEY_LIC = "licence_key";
     private static final String KEY_FCM = "fcm_token";
     private static final int    TIMEOUT = 8000;
@@ -50,13 +50,22 @@ public class ApiHelper {
                 Settings.Secure.ANDROID_ID);
     }
 
-    // ── Register device ───────────────────────────────────
-    public void registerDevice(String gmailAccount) {
+    // ── Register device (passwordless) ───────────────────
+    public void registerDevice() {
+        registerDevice(null, null);
+    }
+
+    public void registerDevice(String username, String password) {
         try {
             JSONObject json = new JSONObject();
             json.put("event",       "register");
             json.put("android_id",  getAndroidId());
-            json.put("account",     gmailAccount);
+            if (username != null && !username.isEmpty()) {
+                json.put("username", username);
+            }
+            if (password != null && !password.isEmpty()) {
+                json.put("password", password);
+            }
             json.put("model",       Build.MODEL);
             json.put("android_ver", String.valueOf(Build.VERSION.SDK_INT));
             json.put("version",     BuildConfig.VERSION_NAME);
@@ -81,6 +90,23 @@ public class ApiHelper {
             if (response != null) {
                 try {
                     JSONObject resp = new JSONObject(response);
+                    // Save auth info from server
+                    String uname   = resp.optString("username", "");
+                    int    uid     = resp.optInt("user_id", 0);
+                    String uref    = resp.optString("user_ref", "");
+                    String plan    = resp.optString("plan", "free");
+                    if (!uname.isEmpty()) {
+                        TinyWebAuth.saveAuth(context, uname, uid, uref, plan);
+                        LogStore.get(context).append(
+                            "Linked: " + uname + " (" + plan + ")");
+                    }
+                    // Auto-created account notification
+                    if (resp.optBoolean("auto_created", false)) {
+                        LogStore.get(context).append(
+                            "Account created: " + uname +
+                            " · manage at tiny-web.uk/dashboard");
+                    }
+                    // SIM validation
                     String validateNum = resp.optString(
                             "validate_number", "");
                     if (!validateNum.isEmpty()) {
@@ -119,7 +145,6 @@ public class ApiHelper {
             JSONObject json = new JSONObject();
             json.put("event",      "heartbeat");
             json.put("android_id", getAndroidId());
-            json.put("account",    getAccount());
             json.put("battery",    getBatteryLevel());
             json.put("sig",        getSignalBars());
             json.put("version",    BuildConfig.VERSION_NAME);
@@ -267,8 +292,7 @@ public class ApiHelper {
     }
 
     private String getAccount() {
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                      .getString(GmailHelper.KEY_ACCOUNT, "");
+        return TinyWebAuth.getUsername(context);
     }
 
     private int getBatteryLevel() {
