@@ -298,8 +298,8 @@ public class MainActivity extends AppCompatActivity {
             String email = TinyWebAuth.getUsername(this);
             // SnappyMail supports ?login= if configured — try it
             String url = email.contains("@")
-                ? "https://webmail.tiny-mail.uk/?login=" + Uri.encode(email)
-                : "https://webmail.tiny-mail.uk/";
+                ? "https://webmail.tiny-web.uk/?login=" + Uri.encode(email)
+                : "https://webmail.tiny-web.uk/";
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
             LogStore.get(this).append("Opening TinyMail webmail...");
             refreshLog();
