@@ -32,7 +32,6 @@ public class MailCheckWorker extends Worker {
             // Heartbeat - keeps device online in dashboard
             api.sendHeartbeat();
 
-            LogStore.get(ctx).append("Heartbeat sent.");
             return Result.success();
 
         } catch (Exception e) {

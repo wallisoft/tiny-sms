@@ -44,7 +44,8 @@ public class ApiHelper {
     }
 
     // ── Get stable android_id ─────────────────────────────
-    private String getAndroidId() {
+    public String getAndroidIdPublic() { return getAndroidId(); }
+    public String getAndroidId() {
         return Settings.Secure.getString(
                 context.getContentResolver(),
                 Settings.Secure.ANDROID_ID);

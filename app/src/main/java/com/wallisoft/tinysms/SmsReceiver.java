@@ -28,7 +28,7 @@ public class SmsReceiver extends BroadcastReceiver {
         }
 
         LogStore.get(context).append(
-                "SMS broadcast: " + action);
+                "SMS broadcast received");
 
         Bundle bundle = intent.getExtras();
         if (bundle == null) return;

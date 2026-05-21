@@ -54,6 +54,9 @@ public class MainActivity extends AppCompatActivity {
     private Button       btnLink, btnCheck, btnClear, btnExport;
     private SwitchCompat switchWorker;
     private TextView     tvStatus, tvLog, tvProStatus, tvReplyStatus;
+    private TextView     tvStatSentToday, tvStatSentMonth,
+                         tvStatRcvd, tvStatDevices, tvStatUptime;
+    private long         startTime = System.currentTimeMillis();
     private ScrollView   scrollLog;
 
     // Wake lock
@@ -127,7 +130,12 @@ public class MainActivity extends AppCompatActivity {
         switchWorker  = findViewById(R.id.switchWorker);
         tvStatus      = findViewById(R.id.tvAccountStatus);
         tvLog         = findViewById(R.id.tvLog);
-        tvProStatus   = findViewById(R.id.tvProStatus);
+        tvProStatus      = findViewById(R.id.tvProStatus);
+        tvStatSentToday  = findViewById(R.id.tvStatSentToday);
+        tvStatSentMonth  = findViewById(R.id.tvStatSentMonth);
+        tvStatRcvd       = findViewById(R.id.tvStatRcvd);
+        tvStatDevices    = findViewById(R.id.tvStatDevices);
+        tvStatUptime     = findViewById(R.id.tvStatUptime);
         tvReplyStatus = findViewById(R.id.tvReplyStatus);
         scrollLog     = findViewById(R.id.scrollLog);
     }
@@ -213,6 +221,10 @@ public class MainActivity extends AppCompatActivity {
     private void restoreState() {
         boolean linked  = TinyWebAuth.isLinked(this);
         boolean isPro   = TinyWebAuth.isPro(this);
+        String  planDbg = TinyWebAuth.getPlan(this);
+        LogStore.get(this).append("Plan: " + planDbg
+            + " isPro:" + isPro
+            + " user:" + TinyWebAuth.getUsername(this));
         String  username = TinyWebAuth.getUsername(this);
         String  userRef  = TinyWebAuth.getUserRef(this);
         SharedPreferences prefs = getSharedPreferences(
@@ -281,10 +293,15 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+
         btnCheck.setOnClickListener(v -> {
-            startActivity(new Intent(Intent.ACTION_VIEW,
-                Uri.parse("https://tiny-web.uk/dashboard/")));
-            LogStore.get(this).append("Opening TinyWeb console...");
+            String email = TinyWebAuth.getUsername(this);
+            // SnappyMail supports ?login= if configured — try it
+            String url = email.contains("@")
+                ? "https://webmail.tiny-mail.uk/?login=" + Uri.encode(email)
+                : "https://webmail.tiny-mail.uk/";
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+            LogStore.get(this).append("Opening TinyMail webmail...");
             refreshLog();
         });
 
@@ -353,30 +370,83 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
+
     private void showLicenceDialog() {
-        SharedPreferences prefs = getSharedPreferences(TinyWebAuth.PREFS, MODE_PRIVATE);
-        String current   = prefs.getString("licence_key", "");
-        String androidId = android.provider.Settings.Secure.getString(getContentResolver(),
-                        android.provider.Settings.Secure.ANDROID_ID);
-        boolean isPro = current != null && !current.isEmpty();
+        String androidId = android.provider.Settings.Secure.getString(
+                getContentResolver(),
+                android.provider.Settings.Secure.ANDROID_ID);
+        boolean isPro   = TinyWebAuth.isPro(this);
+        String  plan    = TinyWebAuth.getPlan(this);
+        String  userRef = TinyWebAuth.getUserRef(this);
 
         if (isPro) {
             new AlertDialog.Builder(this)
                     .setTitle("⭐ Pro Licence Active")
-                    .setMessage("Licence: " + current + "\n\nDevice ID:\n" + androidId)
+                    .setMessage(
+                        "Plan: " + plan +
+                        (userRef.isEmpty() ? "" : "\nRef: " + userRef) +
+                        "\n\nDevice ID:\n" + androidId)
                     .setPositiveButton("Done", null)
-                    .setNeutralButton("Clear", (d, w) -> {
-                        prefs.edit().remove("licence_key").putBoolean("reply_enabled", false).apply();
+                    .setNeutralButton("Refresh", (d, w) -> {
+                        executor.execute(() -> {
+                            new ApiHelper(this).registerDevice();
+                            handler.post(this::restoreState);
+                        });
+                    })
+                    .setNegativeButton("Unlink Plan", (d, w) -> {
+                        getSharedPreferences(TinyWebAuth.PREFS, MODE_PRIVATE)
+                            .edit()
+                            .putString(TinyWebAuth.KEY_PLAN, "free")
+                            .putBoolean("reply_enabled", false)
+                            .apply();
                         updateProStatus(false);
                         updateReplySwitch(false, false);
                         WorkManager.getInstance(this).cancelUniqueWork(WORK_TAG);
-                        LogStore.get(this).append("Pro licence removed.");
+                        LogStore.get(this).append("Pro plan unlinked.");
                     })
                     .show();
         } else {
-            showManualLicenceDialog(prefs, "", androidId, "https://tiny-sms.uk");
+            // Try auto-fetch first, fall back to manual entry
+            LicenceHelper.fetchLicence(this, new LicenceHelper.LicenceCallback() {
+                @Override public void onFound(String licenceKey, String plan) {
+                    handler.post(() -> {
+                        getSharedPreferences(TinyWebAuth.PREFS, MODE_PRIVATE)
+                            .edit()
+                            .putString(TinyWebAuth.KEY_PLAN, plan)
+                            .apply();
+                        updateProStatus(true);
+                        updateReplySwitch(true, false);
+                        LogStore.get(MainActivity.this).append("Pro licence auto-applied: " + plan);
+                        new AlertDialog.Builder(MainActivity.this)
+                            .setTitle("⭐ Pro Licence Found!")
+                            .setMessage("Plan: " + plan + "\nDevice ID:\n" + androidId)
+                            .setPositiveButton("Done", null)
+                            .show();
+                    });
+                }
+                @Override public void onNotFound(String url) {
+                    handler.post(() -> showManualLicenceDialog(androidId, url));
+                }
+                @Override public void onError() {
+                    handler.post(() -> showManualLicenceDialog(androidId,
+                            "https://tiny-sms.uk"));
+                }
+            });
         }
     }
+
+    private void showManualLicenceDialog(String androidId, String buyUrl) {
+        new AlertDialog.Builder(this)
+                .setTitle("Pro Licence Key")
+                .setMessage("No Pro licence found for this account.\n\nDevice ID:\n" + androidId)
+                .setPositiveButton("Get Pro", (d, w) ->
+                    startActivity(new Intent(Intent.ACTION_VIEW,
+                        Uri.parse(buyUrl))))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+
 
     private void showManualLicenceDialog(SharedPreferences prefs, String current, String androidId, String buyUrl) {
         final EditText input = new EditText(this);
@@ -430,7 +500,51 @@ public class MainActivity extends AppCompatActivity {
 
     private void refreshLog() {
         tvLog.setText(LogStore.get(this).read());
-        scrollLog.post(() -> scrollLog.fullScroll(ScrollView.FOCUS_DOWN));
+        scrollLog.post(() ->
+            scrollLog.fullScroll(ScrollView.FOCUS_DOWN));
+        updateStats();
+    }
+
+    private void updateStats() {
+        // Count from log
+        String log = LogStore.get(this).read();
+        String[] lines = log.split("\n");
+        int sentToday = 0, sentMonth = 0, rcvd = 0;
+        String today = new java.text.SimpleDateFormat(
+            "MM-dd", java.util.Locale.UK)
+            .format(new java.util.Date());
+        String month = new java.text.SimpleDateFormat(
+            "MM", java.util.Locale.UK)
+            .format(new java.util.Date());
+
+        for (String line : lines) {
+            if (line.contains("SMS SENT")) {
+                sentMonth++;
+                if (line.contains("[" + today) ||
+                    line.contains(today)) sentToday++;
+            }
+            if (line.contains("SMS IN ←") ||
+                line.contains("SMS REPLY")) rcvd++;
+        }
+
+        // Uptime
+        long uptimeSecs =
+            (System.currentTimeMillis() - startTime) / 1000;
+        String uptime;
+        if (uptimeSecs < 3600)
+            uptime = (uptimeSecs/60) + "m";
+        else if (uptimeSecs < 86400)
+            uptime = (uptimeSecs/3600) + "h";
+        else
+            uptime = (uptimeSecs/86400) + "d";
+
+        if (tvStatSentToday != null) {
+            tvStatSentToday.setText(String.valueOf(sentToday));
+            tvStatSentMonth.setText(String.valueOf(sentMonth));
+            tvStatRcvd.setText(String.valueOf(rcvd));
+            tvStatDevices.setText("1"); // local device
+            tvStatUptime.setText(uptime);
+        }
     }
 
     public static void scheduleReplyWorker(Context ctx) {
