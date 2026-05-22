@@ -88,39 +88,44 @@ public class ApiHelper {
                     "Device registered: " + Build.MODEL);
 
             // Server supplies validation number - no hardcoding
+
             if (response != null) {
                 try {
                     JSONObject resp = new JSONObject(response);
+
+                    // Unknown device — server wants signup, don't save anything
+                    if (!resp.optBoolean("ok", false)
+                            && !resp.optBoolean("linked", true)) {
+                        LogStore.get(context).append(
+                            "New device — please sign in or create account.");
+                        return;
+                    }
+
                     // Save auth info from server
-                    String uname   = resp.optString("username", "");
-                    int    uid     = resp.optInt("user_id", 0);
-                    String uref    = resp.optString("user_ref", "");
-                    String plan    = resp.optString("plan", "free");
+                    String uname = resp.optString("username", "");
+                    int    uid   = resp.optInt("user_id", 0);
+                    String uref  = resp.optString("user_ref", "");
+                    String plan  = resp.optString("plan", "free");
                     if (!uname.isEmpty()) {
                         TinyWebAuth.saveAuth(context, uname, uid, uref, plan);
                         LogStore.get(context).append(
                             "Linked: " + uname + " (" + plan + ")");
                     }
-                    // Auto-created account notification
-                    if (resp.optBoolean("auto_created", false)) {
-                        LogStore.get(context).append(
-                            "Account created: " + uname +
-                            " · manage at tiny-web.uk/dashboard");
-                    }
+
                     // SIM validation
-                    String validateNum = resp.optString(
-                            "validate_number", "");
+                    String validateNum = resp.optString("validate_number", "");
                     if (!validateNum.isEmpty()) {
                         LogStore.get(context).append(
                                 "Sending SIM validation...");
                         new SimValidator(context)
-                                .validateAllSims(
-                                        getAndroidId(), validateNum);
+                                .validateAllSims(getAndroidId(), validateNum);
                     }
+
                 } catch (Exception re) {
                     Log.w(TAG, "Response parse: " + re.getMessage());
                 }
             }
+
 
         } catch (Exception e) {
             Log.w(TAG, "registerDevice failed: " + e.getMessage());
