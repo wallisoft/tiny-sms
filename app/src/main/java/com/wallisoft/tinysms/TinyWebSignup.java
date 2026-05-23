@@ -333,7 +333,7 @@ public class TinyWebSignup {
                     String uref  = r.optString("user_ref", "");
                     String plan  = r.optString("plan", "free");
                     TinyWebAuth.saveAuth(ctx, uname, uid, uref, plan);
-                    new ApiHelper(ctx).registerDevice();
+                    new ApiHelper(ctx).registerDevice(username, password);
 
                     handler.post(() -> {
                         dialog.dismiss();
