@@ -333,14 +333,28 @@ public class TinyWebSignup {
                     String uref  = r.optString("user_ref", "");
                     String plan  = r.optString("plan", "free");
                     TinyWebAuth.saveAuth(ctx, uname, uid, uref, plan);
+
+                    // Register with credentials so device links immediately
+                    // without requiring sign out / sign in
                     new ApiHelper(ctx).registerDevice(username, password);
+
 
                     handler.post(() -> {
                         dialog.dismiss();
-                        LogStore.get(ctx).append(
-                            "Account created: " + uname);
+                        LogStore.get(ctx).append("Account created: " + uname);
                         onSuccess.run();
+                        // Restart app for clean state
+                        android.content.Intent intent =
+                            ctx.getPackageManager()
+                               .getLaunchIntentForPackage(ctx.getPackageName());
+                        if (intent != null) {
+                            intent.addFlags(
+                                android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP |
+                                android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                            ctx.startActivity(intent);
+                        }
                     });
+
                 } else {
                     String err = r.optString("error", "Registration failed");
                     handler.post(() -> {

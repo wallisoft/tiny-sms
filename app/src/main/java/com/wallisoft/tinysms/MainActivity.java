@@ -51,7 +51,9 @@ public class MainActivity extends AppCompatActivity {
     };
 
     // UI
-    private Button       btnLink, btnCheck, btnClear, btnExport;
+    private Button      btnLink, btnCheck, btnClear, 
+                        btnExport, btnManageSenders;
+ 
     private SwitchCompat switchWorker;
     private TextView     tvStatus, tvLog, tvProStatus, tvReplyStatus;
     private TextView     tvStatSentToday, tvStatSentMonth,
@@ -81,12 +83,12 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         bindViews();
         setupWakeLock();
-        setupDeviceAuth();
-        requestPermissions();
         restoreState();
         wireListeners();
         executor.execute(() ->
                 new ApiHelper(this).refreshFcmToken());
+        requestPermissions(); // setupDeviceAuth() called from result callback
+
     }
 
     @Override
@@ -123,21 +125,23 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void bindViews() {
-        btnLink       = findViewById(R.id.btnLinkAccount);
-        btnCheck      = findViewById(R.id.btnCheckMail);
-        btnClear      = findViewById(R.id.btnClearLog);
-        btnExport     = findViewById(R.id.btnExportLog);
-        switchWorker  = findViewById(R.id.switchWorker);
-        tvStatus      = findViewById(R.id.tvAccountStatus);
-        tvLog         = findViewById(R.id.tvLog);
+        btnLink          = findViewById(R.id.btnLinkAccount);
+        btnCheck         = findViewById(R.id.btnCheckMail);
+        btnClear         = findViewById(R.id.btnClearLog);
+        btnExport        = findViewById(R.id.btnExportLog);
+        switchWorker     = findViewById(R.id.switchWorker);
+        tvStatus         = findViewById(R.id.tvAccountStatus);
+        tvLog            = findViewById(R.id.tvLog);
         tvProStatus      = findViewById(R.id.tvProStatus);
         tvStatSentToday  = findViewById(R.id.tvStatSentToday);
         tvStatSentMonth  = findViewById(R.id.tvStatSentMonth);
         tvStatRcvd       = findViewById(R.id.tvStatRcvd);
         tvStatDevices    = findViewById(R.id.tvStatDevices);
         tvStatUptime     = findViewById(R.id.tvStatUptime);
-        tvReplyStatus = findViewById(R.id.tvReplyStatus);
-        scrollLog     = findViewById(R.id.scrollLog);
+        tvReplyStatus    = findViewById(R.id.tvReplyStatus);
+        scrollLog        = findViewById(R.id.scrollLog);
+        btnManageSenders = findViewById(R.id.btnManageSenders);
+
     }
 
     private void setupDeviceAuth() {
@@ -235,6 +239,7 @@ public class MainActivity extends AppCompatActivity {
             tvStatus.setText("User: " + username +
                 (userRef.isEmpty() ? "" : "  ·  " + userRef));
             btnCheck.setEnabled(true);
+            btnManageSenders.setEnabled(true);
             btnLink.setText("✓  Connected  (tap to disconnect)");
         } else {
             tvStatus.setText("Not connected");
@@ -283,6 +288,7 @@ public class MainActivity extends AppCompatActivity {
                         TinyWebAuth.clearAuth(this);
                         tvStatus.setText("Not connected");
                         btnCheck.setEnabled(false);
+                        btnManageSenders.setEnabled(false);
                         btnLink.setText("Connect TinyWeb Account");
                         LogStore.get(this).append("Device unlinked.");
                     })
@@ -304,6 +310,9 @@ public class MainActivity extends AppCompatActivity {
             LogStore.get(this).append("Opening TinyMail webmail...");
             refreshLog();
         });
+
+        btnManageSenders.setOnClickListener(v ->
+            new WhitelistDialog(this, executor).show());
 
         switchWorker.setOnCheckedChangeListener((btn, checked) -> {
             SharedPreferences prefs = getSharedPreferences(
@@ -561,15 +570,50 @@ public class MainActivity extends AppCompatActivity {
     private void requestPermissions() {
         List<String> needed = new ArrayList<>();
         for (String p : SMS_PERMS) {
-            if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
+            if (ContextCompat.checkSelfPermission(this, p)
+                    != PackageManager.PERMISSION_GRANTED) {
                 needed.add(p);
             }
         }
         if (!needed.isEmpty()) {
-            ActivityCompat.requestPermissions(this, needed.toArray(new String[0]), 1);
+            ActivityCompat.requestPermissions(
+                    this, needed.toArray(new String[0]), 1);
+            // setupDeviceAuth() called from onRequestPermissionsResult
+        } else {
+            // Permissions already granted — go straight to device auth
+            setupDeviceAuth();
         }
     }
 
+    @Override
+    public void onRequestPermissionsResult(int requestCode,
+            String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode,
+                permissions, grantResults);
+        if (requestCode != 1) return;
+ 
+        // Check SMS permission granted
+        boolean smsGranted = false;
+        for (int i = 0; i < permissions.length; i++) {
+            if (Manifest.permission.SEND_SMS.equals(permissions[i])
+                    && grantResults[i] == PackageManager.PERMISSION_GRANTED) {
+                smsGranted = true;
+                break;
+            }
+        }
+ 
+        if (smsGranted) {
+            LogStore.get(this).append("SMS permission granted.");
+            // Now safe to setup device auth — validation SMS will work
+            setupDeviceAuth();
+        } else {
+            LogStore.get(this).append(
+                "SMS permission denied — some features unavailable.");
+            // Still setup device auth but validation SMS won't fire
+            setupDeviceAuth();
+        }
+    }
+ 
     private void toast(String msg) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
     }
